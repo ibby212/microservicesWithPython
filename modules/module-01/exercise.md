@@ -26,11 +26,15 @@ A bounded context is a part of the system that has a clear responsibility and ow
 
 For each bounded context you identify, fill in the table:
 
-| Bounded Context | Responsibilities                                         | Owned Entities | Team        |
-| --------------- | -------------------------------------------------------- | -------------- | ----------- |
-| Identity        | Manages who users are, handles registration and profiles | User, Session  | Platform    |
-| Game Library    | _(fill in)_                                              | _(fill in)_    | _(fill in)_ |
-| _(add more)_    |                                                          |                |             |
+| Bounded Context   | Responsibilities                                                                                   | Owned Entities              | Team       |
+| ---------------   | --------------------------------------------------------                                           | --------------              | -----------|
+| Identity          | Manages who users are, handles registration and profiles                                           | User, Session               | Platform   |
+| Game Library      | Stores and manages the list of available games, handles search and filtering                       | Game, Genre                 | Content    |
+| Activity Tracking | Records what users are playing and when                                                            | Activity, PlaySession       | Engagement |
+| Social Graph      | Manages friend connections between users                                                           | Friendship, FriendRequest   | Social     |
+| Notifications     | Receives async events and creates notifications for the relevant users                             | Notifications               | Engagement |
+| Logging & Consent | St res GDPR consent decisions and compliant activity logs, supports the right to erasure           | ConsentRecord, AuditLog     | Compliance |
+| Authentication    | Issues and validates JWT tokens at gateway                                                         | Token                       | Security   |
 
 There is no single correct answer: what matters is that you can justify each row.
 
@@ -56,7 +60,41 @@ Payload: { activity_id, user_id, action, game_id, timestamp }
 
 Focus on the flows that feel non-obvious. You do not need to document every possible pair.
 
+**Contract 1**
+ 
+```
+activity-service → logging-service
+Trigger: a user logs an activity
+Protocol: RabbitMQ event (async)
+Payload: { activity_id, user_id, game_id, action, timestamp }
+Reason: if logging service is slow or down it should never block the user from logging their game. so queue it and move on
+```
+ 
 ---
+ 
+**Contract 2**
+ 
+```
+activity-service → notification-service
+Trigger: a user logs an activity that their friends should be told about
+Protocol: RabbitMQ event (async)
+Payload: { user_id, friend_id, game_title, activity_type }
+Reason: notifications should be independent from whether a user has logged an activity aka async to stop delays
+```
+ 
+---
+ 
+**Contract 3**
+ 
+```
+gateway → auth-service
+Trigger: user login request, or token validation on an incoming request
+Protocol: REST (sync)
+Payload: { email, password }
+Response: { access_token, refresh_token, expires_in }
+Reason: login needs an immediate response cuz user is waiting for their token
+```
+ 
 
 ## Task 3 — Draw the service map _(~20 min)_
 
@@ -69,7 +107,42 @@ Draw the full GameHub service map:
 
 This can be a sketch on paper, a whiteboard photo, or ASCII art committed to your branch.
 
----
+                             Client 
+                               |
+                               | HTTPS
+                               v
+                        +-------------+
+                        |   gateway   |  — single entry point, JWT validation here
+                        +------+------+
+                               |
+          +---------+----------+-----------+---------+
+          |         |          |           |         |
+       REST       REST       REST        RST     REST/JWT
+          |         |          |           |         |
+          v         v          v           v         v
+     +--------+ +--------+ +--------+ +--------+ +--------+
+     |  user  | |  game  | |activity| | social | |  auth  |
+     |service | |service | |service | |service | |service |
+     +--------+ +--------+ +----+---+ +--------+ +--------+
+                                 |     ^
+                                 |     | REST (sync)
+                                 |     | fetch game details
+                                 |     |
+                      - - - - - -+- - -+- - - -
+                      |                        |
+                RabbitMQ                  RabbitMQ
+                event (async)             event (async)
+                      |                        |
+                      v                        v
+              +------------+          +----------------+
+              |notification|          |    logging     |
+              |  service   |          |    service     |
+              | (Node.js)  |          |    (Flask)     |
+              +------------+          +----------------+
+ 
+Legend:
+————>    REST (synchronous)
+- - ->   RabbitMQ event (asynchronous)
 
 ## Discussion _(~15 min)_
 
