@@ -8,3 +8,4 @@ httpx
 aio-pika
 aiosqlite
 asyncpg
+alembic

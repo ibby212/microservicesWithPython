@@ -36,7 +36,7 @@ async def proxy(request: Request, path: str):
     # Step 3 — forward the request
     target_url = f"{target_base}/{path}"
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
             response = await client.request(
                 method=request.method,
                 url=target_url,
