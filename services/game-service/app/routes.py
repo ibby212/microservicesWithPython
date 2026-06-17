@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app import service, schemas
+from app.infrastructure.cache import get_game_summary
 
 router = APIRouter(prefix="/v1/games", tags=["games"])
 
@@ -21,6 +22,12 @@ def list_games(limit: int = 20, offset: int = 0, db: Session = Depends(get_db)):
 def search_games(q: str, limit: int = 20, offset: int = 0, db: Session = Depends(get_db)):
     return service.find_games(db, q=q, limit=limit, offset=offset)
 
+@router.get("/{game_id}/summary")
+def get_game_summary_route(game_id: str):
+    data = get_game_summary(game_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Not in cache")
+    return data
 
 @router.get("/{game_id}", response_model=schemas.GameOut)
 def get_game(game_id: str, db: Session = Depends(get_db)):
