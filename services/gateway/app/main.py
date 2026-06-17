@@ -1,18 +1,19 @@
 import httpx
 from fastapi import FastAPI, Request, Response
+from jose import JWTError, jwt
 
 from app.config import settings
 
 app = FastAPI(title="gateway", version="1.0.0")
 
 ROUTES: dict[str, str] = {
-    "users":      settings.user_service_url,
-    "games":      settings.game_service_url,
-    "activities": settings.activity_service_url,
-    # Added in Module 4
+    "users":         settings.user_service_url,
+    "games":         settings.game_service_url,
+    "activities":    settings.activity_service_url,
     "notifications": settings.notification_service_url,
-    "consent": settings.logging_service_url,
-    "logs": settings.logging_service_url,
+    "consent":       settings.logging_service_url,
+    "logs":          settings.logging_service_url,
+    "auth":          settings.auth_service_url,
 }
 
 
@@ -23,6 +24,16 @@ async def health():
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def proxy(request: Request, path: str):
+    if not path.startswith("v1/auth/token"):
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return Response(status_code=401, content="Missing token")
+        token = auth_header.split(" ", 1)[1]
+        try:
+            jwt.decode(token, settings.secret_key, algorithms=["HS256"])
+        except JWTError:
+            return Response(status_code=401, content="Invalid or expired token")
+
     # Step 1 — parse the resource name from the path
     segments = path.split("/")
     if len(segments) < 2:
@@ -37,12 +48,17 @@ async def proxy(request: Request, path: str):
 
     # Step 3 — forward the request
     target_url = f"{target_base}/{path}"
+    forwarded_headers = {
+        k.decode(): v.decode()
+        for k, v in request.headers.raw
+        if k.lower() != b"host"
+    }
     try:
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
             response = await client.request(
                 method=request.method,
                 url=target_url,
-                headers=request.headers.raw,
+                headers=forwarded_headers,
                 content=await request.body(),
                 params=request.query_params,
             )
